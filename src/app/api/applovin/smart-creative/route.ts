@@ -18,7 +18,7 @@ import {
   findTopComplementaryAssets,
 } from "@/lib/applovin-reporting";
 
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 interface Campaign {
   id: string;
