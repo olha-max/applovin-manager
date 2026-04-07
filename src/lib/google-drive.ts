@@ -36,13 +36,18 @@ async function listFilesInFolder(folderId: string): Promise<DriveFile[]> {
     });
     if (pageToken) params.set("pageToken", pageToken);
 
-    const res = await fetch(`${DRIVE_API_BASE}/files?${params}`, {
-      cache: "no-store",
-    });
+    let res: Response | null = null;
+    for (let retry = 0; retry <= 2; retry++) {
+      res = await fetch(`${DRIVE_API_BASE}/files?${params}`, {
+        cache: "no-store",
+      });
+      if (res.ok || (res.status !== 403 && res.status !== 429)) break;
+      await new Promise((r) => setTimeout(r, (retry + 1) * 5000));
+    }
 
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Google Drive API error (${res.status}): ${text}`);
+    if (!res || !res.ok) {
+      const text = await res?.text() || "Unknown error";
+      throw new Error(`Google Drive API error (${res?.status}): ${text}`);
     }
 
     const data = await res.json();
@@ -99,17 +104,28 @@ export async function downloadDriveFile(
     key: getApiKey(),
   });
 
-  const res = await fetch(`${DRIVE_API_BASE}/files/${fileId}?${params}`, {
-    cache: "no-store",
-  });
+  const maxRetries = 3;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const res = await fetch(`${DRIVE_API_BASE}/files/${fileId}?${params}`, {
+      cache: "no-store",
+    });
 
-  if (!res.ok) {
+    if (res.ok) {
+      const mimeType = res.headers.get("content-type") || "application/octet-stream";
+      const buffer = await res.arrayBuffer();
+      return { buffer, mimeType };
+    }
+
+    // Retry on 403 (rate limit) and 429
+    if ((res.status === 403 || res.status === 429) && attempt < maxRetries) {
+      const delay = (attempt + 1) * 5000; // 5s, 10s, 15s
+      await new Promise((r) => setTimeout(r, delay));
+      continue;
+    }
+
     const text = await res.text();
     throw new Error(`Google Drive download error (${res.status}): ${text}`);
   }
 
-  const mimeType = res.headers.get("content-type") || "application/octet-stream";
-  const buffer = await res.arrayBuffer();
-
-  return { buffer, mimeType };
+  throw new Error("Google Drive download: max retries reached");
 }
