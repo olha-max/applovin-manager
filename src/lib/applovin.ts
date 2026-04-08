@@ -159,8 +159,8 @@ export async function listAssets(resourceType?: "video" | "image" | "html"): Pro
 // Знайти asset по імені файлу (точний матч або по першим 20 символам)
 export async function findAssetByName(
   fileName: string,
-  maxRetries = 10,
-  delayMs = 5000
+  maxRetries = 20,
+  delayMs = 6000
 ): Promise<AppLovinAsset> {
   const nameTrimmed = fileName.trim();
   const prefix = nameTrimmed.slice(0, 20).toLowerCase();
