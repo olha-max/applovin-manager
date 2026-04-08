@@ -69,17 +69,19 @@ function guessAssetType(assetName: string): AssetType {
 }
 
 // Фільтрує ассети по angle та типу
+// Angle може бути в різних позиціях: _video_ss_, _video_strl_ss_, тощо
+// Тому шукаємо _${angle}_ де завгодно в назві, а тип визначаємо окремо
 function filterByAngleAndType(
   report: AssetReportEntry[],
   angle: string,
   targetType: AssetType
 ): AssetReportEntry[] {
-  const anglePattern = new RegExp(`(?:^|_)(static|video)_${angle}_`, "i");
+  const anglePattern = new RegExp(`_${angle}_`, "i");
 
   return report.filter((entry) => {
-    const nameHasAngle = anglePattern.test(entry.asset_name || "");
-    if (!nameHasAngle) return false;
-    return guessAssetType(entry.asset_name) === targetType;
+    const name = entry.asset_name || "";
+    if (!anglePattern.test(name)) return false;
+    return guessAssetType(name) === targetType;
   });
 }
 
