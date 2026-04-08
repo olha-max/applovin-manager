@@ -282,9 +282,29 @@ async function handleCreate(
     send("create_sets", "progress");
     const results: Array<{ campaignId: string; result: unknown }> = [];
     const topAsset = topAssets[0];
+    const creativeSetName = fileName.trim().replace(/\.[^.]+$/, "");
+
+    // Перевірка дублікатів: чи вже є creative set з таким ім'ям у кожній кампанії
+    const existingNames = new Set<string>();
+    for (const cs of allCreativeSets) {
+      if (cs.name && cs.campaign_id) {
+        existingNames.add(`${cs.campaign_id}::${cs.name.trim()}`);
+      }
+    }
+
+    let skippedCount = 0;
 
     for (let ci = 0; ci < matchingCampaignIds.length; ci++) {
       const campaignId = matchingCampaignIds[ci];
+
+      // Пропустити якщо creative set з таким ім'ям вже існує в цій кампанії
+      const key = `${campaignId}::${creativeSetName}`;
+      if (existingNames.has(key)) {
+        skippedCount++;
+        results.push({ campaignId, result: { skipped: true, reason: "Креатив з такою назвою вже існує в цій кампанії" } });
+        continue;
+      }
+
       if (ci > 0) await new Promise((r) => setTimeout(r, 2000));
 
       let retries = 2;
@@ -295,7 +315,6 @@ async function handleCreate(
             { id: topAsset.asset_id },
           ];
 
-          const creativeSetName = fileName.trim().replace(/\.[^.]+$/, "");
           const campaignType = campaignTypeMap.get(campaignId) || "APP";
 
           const result = await createCreativeSet({
@@ -326,18 +345,25 @@ async function handleCreate(
       }
     }
 
-    logCreatedCount = results.filter((r) => !(r.result as { error?: string }).error).length;
+    logCreatedCount = results.filter(
+      (r) => !(r.result as { error?: string }).error && !(r.result as { skipped?: boolean }).skipped
+    ).length;
     const failedCount = results.filter((r) => (r.result as { error?: string }).error).length;
-    logDetails = { results, topAssetId: topAsset.asset_id, topAssetName: topAsset.asset_name };
+    logDetails = { results, topAssetId: topAsset.asset_id, topAssetName: topAsset.asset_name, skippedCount };
 
-    if (failedCount > 0) {
+    if (skippedCount > 0 && skippedCount === results.length) {
+      logError = `Всі ${skippedCount} креативних сетів вже існують (дублікати)`;
+    } else if (failedCount > 0) {
       logError = failedCount === results.length
         ? `Всі ${failedCount} креативних сетів не вдалось створити`
         : `${failedCount} з ${results.length} креативних сетів не вдалось створити`;
     }
 
-    send("create_sets", failedCount > 0 ? "error" : "done", {
+    const hasErrors = failedCount > 0 || (skippedCount > 0 && logCreatedCount === 0);
+
+    send("create_sets", hasErrors ? "error" : "done", {
       created: logCreatedCount,
+      skipped: skippedCount,
       failed: failedCount,
       details: results,
     });
