@@ -50,7 +50,6 @@ export async function getAssetReport(): Promise<AssetReportEntry[]> {
 }
 
 export function extractAngle(name: string): string {
-  // Angle стоїть одразу після _static_ або _video_
   const match = name.match(/_(static|video)_([a-zA-Z]+)_/i);
   if (!match) throw new Error("Не вдалося визначити кут (angle) з назви. Очікується формат _static_xx_ або _video_xx_");
   return match[2].toLowerCase();
@@ -64,7 +63,6 @@ export function detectAssetType(fileName: string, mimeType: string): AssetType {
 
 function guessAssetType(assetName: string): AssetType {
   const lower = assetName?.toLowerCase() || "";
-  // Перевіряємо і з _ і на початку рядка (report дає назви без MCS- префіксу)
   if (/(?:^|_)video[_.]/.test(lower)) return "video";
   if (/(?:^|_)static[_.]/.test(lower)) return "image";
   if (lower.includes(".html")) return "html";
@@ -72,51 +70,79 @@ function guessAssetType(assetName: string): AssetType {
   return "image";
 }
 
+interface AggregatedAsset extends AssetReportEntry {
+  totalSpend: number;
+  totalImpressions: number;
+}
+
+function aggregateByAssetId(entries: AssetReportEntry[]): AggregatedAsset[] {
+  const aggregated = new Map<string, AggregatedAsset>();
+  for (const entry of entries) {
+    const existing = aggregated.get(entry.asset_id);
+    if (existing) {
+      existing.totalSpend += entry.cost || 0;
+      existing.totalImpressions += entry.impressions || 0;
+    } else {
+      aggregated.set(entry.asset_id, {
+        ...entry,
+        totalSpend: entry.cost || 0,
+        totalImpressions: entry.impressions || 0,
+      });
+    }
+  }
+  return Array.from(aggregated.values());
+}
+
+// Фільтрує ассети по angle та типу
+function filterByAngleAndType(
+  report: AssetReportEntry[],
+  angle: string,
+  targetType: AssetType
+): AssetReportEntry[] {
+  const anglePattern = new RegExp(`(?:^|_)(static|video)_${angle}_`, "i");
+
+  return report.filter((entry) => {
+    const nameHasAngle = anglePattern.test(entry.asset_name || "");
+    if (!nameHasAngle) return false;
+    return guessAssetType(entry.asset_name) === targetType;
+  });
+}
+
 export function findTopComplementaryAssets(
   report: AssetReportEntry[],
   angle: string,
   uploadedType: AssetType
 ): AssetReportEntry[] {
-  // Angle стоїть одразу після static_ або video_ (з або без _ перед ними)
-  // Report назви можуть бути: "static_ss_it_..." або "MCS-123_static_ss_it_..."
-  const anglePattern = new RegExp(`(?:^|_)(static|video)_${angle}_`, "i");
+  if (uploadedType === "image" || uploadedType === "html") {
+    // Статика/HTML → 5 топ відео по spend
+    const videos = filterByAngleAndType(report, angle, "video");
+    const aggregated = aggregateByAssetId(videos);
+    aggregated.sort((a, b) => b.totalSpend - a.totalSpend);
+    return aggregated.slice(0, 5).map((r) => ({
+      ...r,
+      cost: r.totalSpend,
+      impressions: r.totalImpressions,
+    }));
+  } else {
+    // Відео → 5 топ interactives (HTML) + 5 топ statics по spend
+    const htmlAssets = filterByAngleAndType(report, angle, "html");
+    const imageAssets = filterByAngleAndType(report, angle, "image");
 
-  // Filter: matching angle + complementary type
-  const filtered = report.filter((entry) => {
-    const nameHasAngle = anglePattern.test(entry.asset_name || "");
-    if (!nameHasAngle) return false;
+    const topHtml = aggregateByAssetId(htmlAssets);
+    topHtml.sort((a, b) => b.totalSpend - a.totalSpend);
 
-    const entryType = guessAssetType(entry.asset_name);
-    if (uploadedType === "video") {
-      return entryType === "image" || entryType === "html";
-    } else {
-      return entryType === "video";
-    }
-  });
+    const topImages = aggregateByAssetId(imageAssets);
+    topImages.sort((a, b) => b.totalSpend - a.totalSpend);
 
-  // Агрегуємо impressions по asset_id (один ассет може бути в багатьох creative sets)
-  const aggregated = new Map<string, AssetReportEntry & { totalImpressions: number; totalClicks: number }>();
-  for (const entry of filtered) {
-    const existing = aggregated.get(entry.asset_id);
-    if (existing) {
-      existing.totalImpressions += entry.impressions || 0;
-      existing.totalClicks += entry.clicks || 0;
-    } else {
-      aggregated.set(entry.asset_id, {
-        ...entry,
-        totalImpressions: entry.impressions || 0,
-        totalClicks: entry.clicks || 0,
-      });
-    }
+    const combined = [
+      ...topHtml.slice(0, 5),
+      ...topImages.slice(0, 5),
+    ];
+
+    return combined.map((r) => ({
+      ...r,
+      cost: r.totalSpend,
+      impressions: r.totalImpressions,
+    }));
   }
-
-  // Sort by total impressions descending
-  const result = Array.from(aggregated.values());
-  result.sort((a, b) => b.totalImpressions - a.totalImpressions);
-
-  return result.map((r) => ({
-    ...r,
-    impressions: r.totalImpressions,
-    clicks: r.totalClicks,
-  }));
 }

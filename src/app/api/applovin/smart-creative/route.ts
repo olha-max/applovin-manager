@@ -239,9 +239,12 @@ async function handleCreate(
     }
     send("report", "done", {
       topAssetsCount: topAssets.length,
-      topAssetName: topAssets[0].asset_name,
-      topAssetId: topAssets[0].asset_id,
-      topImpressions: topAssets[0].impressions,
+      topAssets: topAssets.map((a) => ({
+        name: a.asset_name,
+        id: a.asset_id,
+        spend: a.cost,
+        impressions: a.impressions,
+      })),
     });
 
     // Step: Find campaigns
@@ -299,8 +302,10 @@ async function handleCreate(
     // Step: Create creative sets
     send("create_sets", "progress");
     const results: Array<{ campaignId: string; result: unknown }> = [];
-    const topAsset = topAssets[0];
     const creativeSetName = fileName.trim().replace(/\.[^.]+$/, "");
+
+    // Всі топ ассети йдуть в creative set разом з uploaded ассетом
+    const complementaryAssetIds = topAssets.map((a) => ({ id: a.asset_id }));
 
     // Перевірка дублікатів: чи вже є creative set з таким ім'ям у кожній кампанії
     const existingNames = new Set<string>();
@@ -330,7 +335,7 @@ async function handleCreate(
         try {
           const assets = [
             { id: assetId },
-            { id: topAsset.asset_id },
+            ...complementaryAssetIds,
           ];
 
           const campaignType = campaignTypeMap.get(campaignId) || "APP";
@@ -355,7 +360,7 @@ async function handleCreate(
               errorDetail: msg,
               campaignId,
               assetId,
-              topAssetId: topAsset.asset_id,
+              complementaryCount: complementaryAssetIds.length,
             });
             break;
           }
@@ -367,7 +372,11 @@ async function handleCreate(
       (r) => !(r.result as { error?: string }).error && !(r.result as { skipped?: boolean }).skipped
     ).length;
     const failedCount = results.filter((r) => (r.result as { error?: string }).error).length;
-    logDetails = { results, topAssetId: topAsset.asset_id, topAssetName: topAsset.asset_name, skippedCount };
+    logDetails = {
+      results,
+      complementaryAssets: topAssets.map((a) => ({ id: a.asset_id, name: a.asset_name, spend: a.cost })),
+      skippedCount,
+    };
 
     if (skippedCount > 0 && skippedCount === results.length) {
       logError = `Всі ${skippedCount} креативних сетів вже існують (дублікати)`;
@@ -395,7 +404,7 @@ async function handleCreate(
         angle,
         assetType,
         assetId,
-        topComplementaryAsset: topAsset.asset_id,
+        complementaryAssets: topAssets.map((a) => a.asset_id),
         campaignsCount: matchingCampaignIds.length,
         createdCount: logCreatedCount,
       },
