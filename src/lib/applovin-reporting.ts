@@ -88,8 +88,30 @@ export function findTopComplementaryAssets(
     }
   });
 
-  // Sort by impressions descending
-  filtered.sort((a, b) => (b.impressions || 0) - (a.impressions || 0));
+  // Агрегуємо impressions по asset_id (один ассет може бути в багатьох creative sets)
+  const aggregated = new Map<string, AssetReportEntry & { totalImpressions: number; totalClicks: number }>();
+  for (const entry of filtered) {
+    const existing = aggregated.get(entry.asset_id);
+    if (existing) {
+      existing.totalImpressions += entry.impressions || 0;
+      existing.totalClicks += entry.clicks || 0;
+    } else {
+      aggregated.set(entry.asset_id, {
+        ...entry,
+        totalImpressions: entry.impressions || 0,
+        totalClicks: entry.clicks || 0,
+      });
+    }
+  }
 
-  return filtered;
+  // Sort by total impressions descending
+  const result = Array.from(aggregated.values());
+  result.sort((a, b) => b.totalImpressions - a.totalImpressions);
+
+  // Повертаємо з оригінальним impressions замінений на total
+  return result.map((r) => ({
+    ...r,
+    impressions: r.totalImpressions,
+    clicks: r.totalClicks,
+  }));
 }
