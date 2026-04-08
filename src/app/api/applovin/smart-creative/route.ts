@@ -256,7 +256,7 @@ async function handleCreate(
 
     const allCreativeSets = await getCachedCreativeSets();
 
-    const anglePattern = new RegExp(`_(static|video)_${angle}_`, "i");
+    const anglePattern = new RegExp(`(?:^|_)(static|video)_${angle}_`, "i");
     const campaignIdsWithAngle = new Set<string>();
     for (const cs of allCreativeSets) {
       if (anglePattern.test(cs.name || "") && cs.campaign_id) {

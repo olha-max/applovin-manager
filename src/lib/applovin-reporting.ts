@@ -39,7 +39,14 @@ export async function getAssetReport(): Promise<AssetReportEntry[]> {
   }
 
   const data = await res.json();
-  return data.results || [];
+  // AppLovin повертає числа як strings — конвертуємо
+  return (data.results || []).map((r: Record<string, unknown>) => ({
+    ...r,
+    impressions: Number(r.impressions) || 0,
+    clicks: Number(r.clicks) || 0,
+    cost: Number(r.cost) || 0,
+    ctr: Number(r.ctr) || 0,
+  }));
 }
 
 export function extractAngle(name: string): string {
@@ -57,11 +64,11 @@ export function detectAssetType(fileName: string, mimeType: string): AssetType {
 
 function guessAssetType(assetName: string): AssetType {
   const lower = assetName?.toLowerCase() || "";
-  if (lower.includes("_video_")) return "video";
-  if (lower.includes("_static_")) return "image";
+  // Перевіряємо і з _ і на початку рядка (report дає назви без MCS- префіксу)
+  if (/(?:^|_)video[_.]/.test(lower)) return "video";
+  if (/(?:^|_)static[_.]/.test(lower)) return "image";
   if (lower.includes(".html")) return "html";
   if (lower.includes(".mp4") || lower.includes(".mov")) return "video";
-  // fallback: якщо немає маркера, вважаємо image (end card)
   return "image";
 }
 
@@ -70,8 +77,9 @@ export function findTopComplementaryAssets(
   angle: string,
   uploadedType: AssetType
 ): AssetReportEntry[] {
-  // Angle стоїть одразу після _static_ або _video_
-  const anglePattern = new RegExp(`_(static|video)_${angle}_`, "i");
+  // Angle стоїть одразу після static_ або video_ (з або без _ перед ними)
+  // Report назви можуть бути: "static_ss_it_..." або "MCS-123_static_ss_it_..."
+  const anglePattern = new RegExp(`(?:^|_)(static|video)_${angle}_`, "i");
 
   // Filter: matching angle + complementary type
   const filtered = report.filter((entry) => {
@@ -80,10 +88,8 @@ export function findTopComplementaryAssets(
 
     const entryType = guessAssetType(entry.asset_name);
     if (uploadedType === "video") {
-      // Looking for end cards (images or HTML)
       return entryType === "image" || entryType === "html";
     } else {
-      // Looking for videos
       return entryType === "video";
     }
   });
@@ -108,7 +114,6 @@ export function findTopComplementaryAssets(
   const result = Array.from(aggregated.values());
   result.sort((a, b) => b.totalImpressions - a.totalImpressions);
 
-  // Повертаємо з оригінальним impressions замінений на total
   return result.map((r) => ({
     ...r,
     impressions: r.totalImpressions,
