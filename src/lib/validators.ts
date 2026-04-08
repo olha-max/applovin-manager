@@ -39,7 +39,7 @@ export const smartCreativeSchema = z.object({
     .string()
     .url("Невірний URL")
     .refine(
-      (url) => url.includes("drive.google.com/drive/folders/"),
+      (url) => /drive\.google\.com\/drive\/(u\/\d+\/)?folders\//.test(url),
       "Посилання має бути на папку Google Drive"
     ),
   mode: z.enum(["upload", "create"]).optional(),
