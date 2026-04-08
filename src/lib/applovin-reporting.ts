@@ -11,10 +11,6 @@ function getReportKey(): string {
 export interface AssetReportEntry {
   asset_id: string;
   asset_name: string;
-  campaign: string;
-  campaign_id: string;
-  creative_set: string;
-  creative_set_id: string;
   impressions: number;
   clicks: number;
   cost: number;
@@ -28,7 +24,9 @@ export async function getAssetReport(): Promise<AssetReportEntry[]> {
     api_key: getReportKey(),
     range: "last_7d",
     format: "json",
-    columns: "asset_id,asset_name,campaign,campaign_id,creative_set,creative_set_id,impressions,clicks,cost,ctr",
+    // Без creative_set колонок — API агрегує дані по кожному ассету окремо
+    columns: "asset_id,asset_name,impressions,clicks,cost,ctr",
+    sort_cost: "desc",
   });
 
   const res = await fetch(`${REPORT_URL}?${params}`, { cache: "no-store" });
@@ -70,29 +68,6 @@ function guessAssetType(assetName: string): AssetType {
   return "image";
 }
 
-interface AggregatedAsset extends AssetReportEntry {
-  totalSpend: number;
-  totalImpressions: number;
-}
-
-function aggregateByAssetId(entries: AssetReportEntry[]): AggregatedAsset[] {
-  const aggregated = new Map<string, AggregatedAsset>();
-  for (const entry of entries) {
-    const existing = aggregated.get(entry.asset_id);
-    if (existing) {
-      existing.totalSpend += entry.cost || 0;
-      existing.totalImpressions += entry.impressions || 0;
-    } else {
-      aggregated.set(entry.asset_id, {
-        ...entry,
-        totalSpend: entry.cost || 0,
-        totalImpressions: entry.impressions || 0,
-      });
-    }
-  }
-  return Array.from(aggregated.values());
-}
-
 // Фільтрує ассети по angle та типу
 function filterByAngleAndType(
   report: AssetReportEntry[],
@@ -113,36 +88,22 @@ export function findTopComplementaryAssets(
   angle: string,
   uploadedType: AssetType
 ): AssetReportEntry[] {
+  // Report вже агрегований по asset_id (без creative_set колонок)
+  // Просто фільтруємо по angle + типу і беремо топ по spend
+
   if (uploadedType === "image" || uploadedType === "html") {
     // Статика/HTML → 5 топ відео по spend
     const videos = filterByAngleAndType(report, angle, "video");
-    const aggregated = aggregateByAssetId(videos);
-    aggregated.sort((a, b) => b.totalSpend - a.totalSpend);
-    return aggregated.slice(0, 5).map((r) => ({
-      ...r,
-      cost: r.totalSpend,
-      impressions: r.totalImpressions,
-    }));
+    videos.sort((a, b) => (b.cost || 0) - (a.cost || 0));
+    return videos.slice(0, 5);
   } else {
     // Відео → 5 топ interactives (HTML) + 5 топ statics по spend
     const htmlAssets = filterByAngleAndType(report, angle, "html");
+    htmlAssets.sort((a, b) => (b.cost || 0) - (a.cost || 0));
+
     const imageAssets = filterByAngleAndType(report, angle, "image");
+    imageAssets.sort((a, b) => (b.cost || 0) - (a.cost || 0));
 
-    const topHtml = aggregateByAssetId(htmlAssets);
-    topHtml.sort((a, b) => b.totalSpend - a.totalSpend);
-
-    const topImages = aggregateByAssetId(imageAssets);
-    topImages.sort((a, b) => b.totalSpend - a.totalSpend);
-
-    const combined = [
-      ...topHtml.slice(0, 5),
-      ...topImages.slice(0, 5),
-    ];
-
-    return combined.map((r) => ({
-      ...r,
-      cost: r.totalSpend,
-      impressions: r.totalImpressions,
-    }));
+    return [...htmlAssets.slice(0, 5), ...imageAssets.slice(0, 5)];
   }
 }
