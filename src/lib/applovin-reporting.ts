@@ -68,9 +68,7 @@ function guessAssetType(assetName: string): AssetType {
   return "image";
 }
 
-// Фільтрує ассети по angle та типу
-// Angle може бути в різних позиціях: _video_ss_, _video_strl_ss_, тощо
-// Тому шукаємо _${angle}_ де завгодно в назві, а тип визначаємо окремо
+// Фільтрує ассети з repor по angle та типу
 function filterByAngleAndType(
   report: AssetReportEntry[],
   angle: string,
@@ -85,27 +83,95 @@ function filterByAngleAndType(
   });
 }
 
+// Інтерфейс ассету з AppLovin (для добору найновіших)
+export interface AppLovinAssetLite {
+  id: string;
+  name: string;
+  status: string;
+  asset_type: string;
+  resource_type: string;
+  upload_time?: string;
+}
+
+// Конвертує AppLovinAsset → AssetReportEntry щоб уніфікувати формат
+function assetToReportEntry(asset: AppLovinAssetLite): AssetReportEntry {
+  return {
+    asset_id: asset.id,
+    asset_name: asset.name,
+    impressions: 0,
+    clicks: 0,
+    cost: 0,
+    ctr: 0,
+  };
+}
+
+// Найновіші ассети з заданим angle і типом, які ще не в excludeIds
+function findRecentAssets(
+  allAssets: AppLovinAssetLite[],
+  angle: string,
+  targetType: AssetType,
+  excludeIds: Set<string>,
+  limit: number
+): AssetReportEntry[] {
+  const anglePattern = new RegExp(`_${angle}_`, "i");
+
+  const matching = allAssets.filter((a) => {
+    if (excludeIds.has(a.id)) return false;
+    if (a.status !== "ACTIVE") return false;
+    const name = a.name || "";
+    if (!anglePattern.test(name)) return false;
+    return guessAssetType(name) === targetType;
+  });
+
+  // Сортуємо по upload_time (найновіші перші)
+  matching.sort((a, b) => {
+    const ta = a.upload_time || "";
+    const tb = b.upload_time || "";
+    return tb.localeCompare(ta);
+  });
+
+  return matching.slice(0, limit).map(assetToReportEntry);
+}
+
+// Бере топ N по spend, добиває найновішими якщо не вистачає
+function topByspendOrRecent(
+  report: AssetReportEntry[],
+  allAssets: AppLovinAssetLite[],
+  angle: string,
+  targetType: AssetType,
+  limit: number
+): AssetReportEntry[] {
+  // Топ по spend
+  const filtered = filterByAngleAndType(report, angle, targetType);
+  filtered.sort((a, b) => (b.cost || 0) - (a.cost || 0));
+  const topBySpend = filtered.slice(0, limit);
+
+  // Якщо вже маємо достатньо — повертаємо
+  if (topBySpend.length >= limit) return topBySpend;
+
+  // Добираємо найновіші (виключаючи вже відібрані)
+  const excludeIds = new Set(topBySpend.map((a) => a.asset_id));
+  const needMore = limit - topBySpend.length;
+  const recent = findRecentAssets(allAssets, angle, targetType, excludeIds, needMore);
+
+  return [...topBySpend, ...recent];
+}
+
 export function findTopComplementaryAssets(
   report: AssetReportEntry[],
   angle: string,
-  uploadedType: AssetType
+  uploadedType: AssetType,
+  allAssets: AppLovinAssetLite[] = []
 ): AssetReportEntry[] {
-  // Report вже агрегований по asset_id (без creative_set колонок)
-  // Просто фільтруємо по angle + типу і беремо топ по spend
+  const LIMIT = 10;
 
   if (uploadedType === "image" || uploadedType === "html") {
-    // Статика/HTML → 5 топ відео по spend
-    const videos = filterByAngleAndType(report, angle, "video");
-    videos.sort((a, b) => (b.cost || 0) - (a.cost || 0));
-    return videos.slice(0, 5);
+    // Статика/HTML → 10 топ відео (добираємо найновішими якщо менше)
+    return topByspendOrRecent(report, allAssets, angle, "video", LIMIT);
   } else {
-    // Відео → 5 топ interactives (HTML) + 5 топ statics по spend
-    const htmlAssets = filterByAngleAndType(report, angle, "html");
-    htmlAssets.sort((a, b) => (b.cost || 0) - (a.cost || 0));
-
-    const imageAssets = filterByAngleAndType(report, angle, "image");
-    imageAssets.sort((a, b) => (b.cost || 0) - (a.cost || 0));
-
-    return [...htmlAssets.slice(0, 5), ...imageAssets.slice(0, 5)];
+    // Відео → 10 топ interactives (HTML) + 10 топ statics
+    const htmlAssets = topByspendOrRecent(report, allAssets, angle, "html", LIMIT);
+    const imageAssets = topByspendOrRecent(report, allAssets, angle, "image", LIMIT);
+    return [...htmlAssets, ...imageAssets];
   }
 }

@@ -118,12 +118,13 @@ export async function uploadAsset(
   return res.json();
 }
 
-interface AppLovinAsset {
+export interface AppLovinAsset {
   id: string;
   name: string;
   status: string;
   asset_type: string;
   resource_type: string;
+  upload_time?: string;
   [key: string]: unknown;
 }
 

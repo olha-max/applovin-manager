@@ -7,6 +7,7 @@ import { parseDriveFolderUrl, findFileRecursive, downloadDriveFile } from "@/lib
 import {
   uploadAsset,
   findAssetByName,
+  listAssets,
   listCampaigns,
   listCreativeSets,
   createCreativeSet,
@@ -231,7 +232,9 @@ async function handleCreate(
     // Step: Get report + complementary assets
     send("report", "progress");
     const report = await getCachedReport();
-    const topAssets = findTopComplementaryAssets(report, angle, assetType);
+    // Завантажуємо весь список ассетів для добору найновіших якщо топ < 10
+    const allAssetsList = await listAssets();
+    const topAssets = findTopComplementaryAssets(report, angle, assetType, allAssetsList);
     if (topAssets.length === 0) {
       logError = `Не знайдено комплементарних ассетів з кутом _${angle}_`;
       send("report", "error", { message: logError });
