@@ -277,16 +277,30 @@ async function handleCreate(
     // Step: Get report + complementary assets
     send("report", "progress");
     const report = await getCachedReport();
-    // Завантажуємо весь список ассетів для добору найновіших якщо топ < 10
-    const allAssetsList = await listAssets();
+    // Тягнемо ассети окремо по resource_type — у кожного типу свій ліміт пагінації
+    // (інакше пагінація спільного списку могла б відрізати старіші типи)
+    const neededTypes: Array<"video" | "image" | "html"> =
+      assetType === "video" ? ["html", "image"] : ["video"];
+    const assetLists = await Promise.all(neededTypes.map((t) => listAssets(t)));
+    const allAssetsList = assetLists.flat();
     const topAssets = findTopComplementaryAssets(report, angle, assetType, allAssetsList);
     if (topAssets.length === 0) {
       logError = `Не знайдено комплементарних ассетів з кутом _${angle}_`;
       send("report", "error", { message: logError });
       return;
     }
+    // Розбивка по типах щоб одразу видно якщо якогось не добралось до 10
+    const countByType = topAssets.reduce<Record<string, number>>((acc, a) => {
+      const t = neededTypes.find((nt) =>
+        allAssetsList.find((x) => x.id === a.asset_id)?.resource_type?.toLowerCase() === nt
+      ) || "unknown";
+      acc[t] = (acc[t] || 0) + 1;
+      return acc;
+    }, {});
     send("report", "done", {
       topAssetsCount: topAssets.length,
+      countByType,
+      poolSizes: Object.fromEntries(neededTypes.map((t, i) => [t, assetLists[i].length])),
       topAssets: topAssets.map((a) => ({
         name: a.asset_name,
         id: a.asset_id,
