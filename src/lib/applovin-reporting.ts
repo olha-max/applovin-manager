@@ -22,7 +22,7 @@ export type AssetType = "video" | "image" | "html";
 export async function getAssetReport(): Promise<AssetReportEntry[]> {
   const params = new URLSearchParams({
     api_key: getReportKey(),
-    range: "last_7d",
+    range: "last_30d",
     format: "json",
     // Без creative_set колонок — API агрегує дані по кожному ассету окремо
     columns: "asset_id,asset_name,impressions,clicks,cost,ctr",
