@@ -512,7 +512,21 @@ export default function CreativesPage() {
     if (jobs) runUploadPhase(jobs);
   }
 
-  function cancelShortVideos() {
+  function skipShortVideos() {
+    const jobs = pendingJobs;
+    const shortNames = new Set((shortVideos || []).map((v) => v.name));
+    setShortVideos(null);
+    setPendingJobs(null);
+    if (!jobs) return;
+    const remaining = jobs.filter((j) => !shortNames.has(j.name));
+    if (remaining.length === 0) {
+      setRunning(false);
+      return;
+    }
+    runUploadPhase(remaining);
+  }
+
+  function cancelAll() {
     setShortVideos(null);
     setPendingJobs(null);
     setRunning(false);
@@ -732,7 +746,7 @@ export default function CreativesPage() {
               Короткі відео ({shortVideos.length})
             </h2>
             <p className="mt-2 text-sm text-slate-300">
-              Ці відео коротші за 20 секунд. Загрузити їх у AppLovin?
+              Ці відео коротші за 20 секунд. Що робити?
             </p>
             <ul className="mt-3 max-h-60 overflow-y-auto space-y-1 rounded-lg border border-slate-700 bg-slate-950/50 p-3 text-xs">
               {shortVideos.map((v) => (
@@ -742,18 +756,24 @@ export default function CreativesPage() {
                 </li>
               ))}
             </ul>
-            <div className="mt-5 flex justify-end gap-2">
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
               <button
-                onClick={cancelShortVideos}
+                onClick={cancelAll}
                 className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-600"
               >
-                Скасувати
+                Скасувати все
+              </button>
+              <button
+                onClick={skipShortVideos}
+                className="rounded-lg bg-slate-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-500"
+              >
+                Пропустити короткі
               </button>
               <button
                 onClick={acceptShortVideos}
                 className="rounded-lg bg-yellow-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-yellow-700"
               >
-                Accept
+                Загрузити всі
               </button>
             </div>
           </div>
