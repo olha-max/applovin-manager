@@ -68,8 +68,16 @@ function isPortrait(file: DriveFile): boolean {
 }
 
 function nameMatchesPrefix(fileName: string, searchName: string): boolean {
-  const prefix = searchName.trim().slice(0, 20).toLowerCase();
-  return fileName.trim().toLowerCase().startsWith(prefix);
+  const fileLower = fileName.trim().toLowerCase();
+  const searchLower = searchName.trim().toLowerCase();
+  // Якщо в назві є MCS-код (MCS-1234) — матчимо тільки по ньому, ігноруючи решту назви.
+  // Це дозволяє коли в Drive файл названо трохи інакше від того що вводиш.
+  const mcsCode = searchLower.match(/^(mcs-\d+)/);
+  if (mcsCode) {
+    return fileLower.startsWith(mcsCode[1] + "_") || fileLower.startsWith(mcsCode[1] + ".");
+  }
+  // Фолбек: перші 20 символів
+  return fileLower.startsWith(searchLower.slice(0, 20));
 }
 
 export async function findFileRecursive(

@@ -159,29 +159,39 @@ export async function listAssets(): Promise<AppLovinAsset[]> {
   return allAssets;
 }
 
-// Знайти asset по імені файлу (точний матч або по першим 20 символам)
+// Знайти asset по імені файлу. Якщо назва починається з MCS-XXXX —
+// матчимо саме по цьому коду (бо повна назва в AppLovin може відрізнятись).
+// Інакше fallback на перші 20 символів.
 export async function findAssetByName(
   fileName: string,
   maxRetries = 20,
   delayMs = 6000
 ): Promise<AppLovinAsset> {
   const nameTrimmed = fileName.trim();
+  const nameLower = nameTrimmed.toLowerCase();
+  const mcsCode = nameLower.match(/^(mcs-\d+)/)?.[1];
   const prefix = nameTrimmed.slice(0, 20).toLowerCase();
+
+  const matchesByCode = (assetName: string): boolean => {
+    const lower = assetName.trim().toLowerCase();
+    if (mcsCode) return lower.startsWith(mcsCode + "_") || lower.startsWith(mcsCode + ".");
+    return lower.startsWith(prefix);
+  };
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const assets = await listAssets();
 
-    // Спочатку точний матч (ACTIVE)
+    // Точний матч (ACTIVE)
     const exact = assets.find(
       (a) => a.name?.trim() === nameTrimmed && a.status === "ACTIVE"
     );
     if (exact) return exact;
 
-    // По першим 20 символам (ACTIVE)
-    const prefixMatch = assets.find(
-      (a) => a.name?.trim().toLowerCase().startsWith(prefix) && a.status === "ACTIVE"
+    // По MCS-коду / префіксу (ACTIVE)
+    const codeMatch = assets.find(
+      (a) => a.name && matchesByCode(a.name) && a.status === "ACTIVE"
     );
-    if (prefixMatch) return prefixMatch;
+    if (codeMatch) return codeMatch;
 
     // Без перевірки статусу (asset може ще оброблятись)
     const anyStatusExact = assets.find(
@@ -189,10 +199,8 @@ export async function findAssetByName(
     );
     if (anyStatusExact) return anyStatusExact;
 
-    const anyStatusPrefix = assets.find(
-      (a) => a.name?.trim().toLowerCase().startsWith(prefix)
-    );
-    if (anyStatusPrefix) return anyStatusPrefix;
+    const anyStatusCode = assets.find((a) => a.name && matchesByCode(a.name));
+    if (anyStatusCode) return anyStatusCode;
 
     if (attempt < maxRetries - 1) {
       await new Promise((r) => setTimeout(r, delayMs));
