@@ -37,12 +37,14 @@ async function listFilesInFolder(folderId: string): Promise<DriveFile[]> {
     if (pageToken) params.set("pageToken", pageToken);
 
     let res: Response | null = null;
-    for (let retry = 0; retry <= 2; retry++) {
+    for (let retry = 0; retry <= 4; retry++) {
       res = await fetch(`${DRIVE_API_BASE}/files?${params}`, {
         cache: "no-store",
       });
       if (res.ok || (res.status !== 403 && res.status !== 429)) break;
-      await new Promise((r) => setTimeout(r, (retry + 1) * 5000));
+      const baseDelay = Math.pow(2, retry) * 5000; // 5s, 10s, 20s, 40s, 80s
+      const jitter = Math.random() * 2000;
+      await new Promise((r) => setTimeout(r, baseDelay + jitter));
     }
 
     if (!res || !res.ok) {
@@ -104,7 +106,7 @@ export async function downloadDriveFile(
     key: getApiKey(),
   });
 
-  const maxRetries = 3;
+  const maxRetries = 5;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const res = await fetch(`${DRIVE_API_BASE}/files/${fileId}?${params}`, {
       cache: "no-store",
@@ -116,10 +118,11 @@ export async function downloadDriveFile(
       return { buffer, mimeType };
     }
 
-    // Retry on 403 (rate limit) and 429
+    // Retry on 403 (rate limit) and 429 — exponential backoff з jitter
     if ((res.status === 403 || res.status === 429) && attempt < maxRetries) {
-      const delay = (attempt + 1) * 5000; // 5s, 10s, 15s
-      await new Promise((r) => setTimeout(r, delay));
+      const baseDelay = Math.pow(2, attempt) * 5000; // 5s, 10s, 20s, 40s, 80s
+      const jitter = Math.random() * 2000;
+      await new Promise((r) => setTimeout(r, baseDelay + jitter));
       continue;
     }
 

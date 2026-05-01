@@ -446,10 +446,12 @@ export default function CreativesPage() {
     }));
     setJobs(initialJobs);
 
-    // Phase 1: Upload all
+    // Phase 1: Upload all (з паузою між job щоб не дросселити Google Drive API)
     setPhase("uploading");
     const uploadResults: Array<{ assetId: string; assetType: string; fileName: string } | null> = [];
     for (let i = 0; i < parsed.length; i++) {
+      // Пауза 5с між job для уникнення Google Drive rate limit
+      if (i > 0) await new Promise((r) => setTimeout(r, 5000));
       const result = await uploadJob(parsed[i], i);
       uploadResults.push(result);
     }
