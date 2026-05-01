@@ -109,7 +109,45 @@ async function handleUpload(
       return null;
     }
     logFileName = file.name;
-    send("search_drive", "done", { fileName: file.name, fileId: file.id });
+    const durationMs = file.videoMediaMetadata?.durationMillis
+      ? Number(file.videoMediaMetadata.durationMillis)
+      : undefined;
+    const durationSec = durationMs ? Math.round(durationMs / 100) / 10 : undefined;
+    const sizeMb = file.size ? Math.round(Number(file.size) / 1024 / 1024 * 10) / 10 : undefined;
+    const width = file.videoMediaMetadata?.width;
+    const height = file.videoMediaMetadata?.height;
+    send("search_drive", "done", {
+      fileName: file.name,
+      fileId: file.id,
+      ...(durationSec !== undefined && { durationSec }),
+      ...(sizeMb !== undefined && { sizeMb }),
+      ...(width && height && { resolution: `${width}x${height}` }),
+    });
+
+    // AppLovin ліміти для відео — фейлим раніше з ясною помилкою
+    const MAX_VIDEO_SEC = 60;
+    const MIN_PIXELS_SHORT_SIDE = 720;
+    const MAX_PIXELS = 4096;
+
+    if (durationSec !== undefined && durationSec > MAX_VIDEO_SEC) {
+      logError = `Відео задовге: ${durationSec}с (максимум ${MAX_VIDEO_SEC}с для AppLovin)`;
+      send("search_drive", "error", { message: logError });
+      return null;
+    }
+    if (width && height) {
+      const shortSide = Math.min(width, height);
+      const longSide = Math.max(width, height);
+      if (shortSide < MIN_PIXELS_SHORT_SIDE) {
+        logError = `Замала роздільна здатність: ${width}x${height} (мінімум ${MIN_PIXELS_SHORT_SIDE}px по короткій стороні)`;
+        send("search_drive", "error", { message: logError });
+        return null;
+      }
+      if (longSide > MAX_PIXELS) {
+        logError = `Завелика роздільна здатність: ${width}x${height} (максимум ${MAX_PIXELS}px по довгій стороні)`;
+        send("search_drive", "error", { message: logError });
+        return null;
+      }
+    }
 
     // Step 3: Check if asset exists or download
     send("download", "progress");
@@ -273,6 +311,7 @@ async function handleCreate(
       pl: "past-life",
       au: "aura",
       ss: "soulmate",
+      ch: "chats",
     };
 
     const allCreativeSets = await getCachedCreativeSets();

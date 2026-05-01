@@ -12,7 +12,8 @@ export interface DriveFile {
   id: string;
   name: string;
   mimeType: string;
-  videoMediaMetadata?: { width: number; height: number };
+  size?: string;
+  videoMediaMetadata?: { width: number; height: number; durationMillis?: string };
   imageMediaMetadata?: { width: number; height: number };
 }
 
@@ -31,7 +32,7 @@ async function listFilesInFolder(folderId: string): Promise<DriveFile[]> {
       q: `'${folderId}' in parents and trashed = false`,
       key: getApiKey(),
       fields:
-        "nextPageToken,files(id,name,mimeType,videoMediaMetadata,imageMediaMetadata)",
+        "nextPageToken,files(id,name,mimeType,size,videoMediaMetadata,imageMediaMetadata)",
       pageSize: "1000",
     });
     if (pageToken) params.set("pageToken", pageToken);

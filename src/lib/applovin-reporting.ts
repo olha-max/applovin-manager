@@ -68,18 +68,23 @@ function guessAssetType(assetName: string): AssetType {
   return "image";
 }
 
-// Фільтрує ассети з repor по angle та типу
+// Фільтрує ассети з report по angle та типу.
+// Якщо є assetTypeMap (id→type з AppLovin API) — використовує його як authoritative,
+// інакше падає на здогадку по назві.
 function filterByAngleAndType(
   report: AssetReportEntry[],
   angle: string,
-  targetType: AssetType
+  targetType: AssetType,
+  assetTypeMap?: Map<string, AssetType>
 ): AssetReportEntry[] {
   const anglePattern = new RegExp(`_${angle}_`, "i");
 
   return report.filter((entry) => {
     const name = entry.asset_name || "";
     if (!anglePattern.test(name)) return false;
-    return guessAssetType(name) === targetType;
+    const apiType = assetTypeMap?.get(entry.asset_id);
+    const type = apiType ?? guessAssetType(name);
+    return type === targetType;
   });
 }
 
@@ -105,6 +110,17 @@ function assetToReportEntry(asset: AppLovinAssetLite): AssetReportEntry {
   };
 }
 
+// Тип ассета з AppLovin API (authoritative) з фолбеком на здогадку по назві
+function assetTypeFromApi(asset: AppLovinAssetLite): AssetType {
+  const at = (asset.asset_type || "").toString().toLowerCase();
+  const rt = (asset.resource_type || "").toString().toLowerCase();
+  const combined = `${at} ${rt}`;
+  if (combined.includes("vid")) return "video";
+  if (combined.includes("html") || combined.includes("hosted") || combined.includes("playable") || combined.includes("interactive")) return "html";
+  if (combined.includes("image") || combined.includes("static") || combined.includes("img")) return "image";
+  return guessAssetType(asset.name || "");
+}
+
 // Найновіші ассети з заданим angle і типом, які ще не в excludeIds
 function findRecentAssets(
   allAssets: AppLovinAssetLite[],
@@ -120,7 +136,7 @@ function findRecentAssets(
     if (a.status !== "ACTIVE") return false;
     const name = a.name || "";
     if (!anglePattern.test(name)) return false;
-    return guessAssetType(name) === targetType;
+    return assetTypeFromApi(a) === targetType;
   });
 
   // Сортуємо по upload_time (найновіші перші)
@@ -139,10 +155,11 @@ function topByspendOrRecent(
   allAssets: AppLovinAssetLite[],
   angle: string,
   targetType: AssetType,
-  limit: number
+  limit: number,
+  assetTypeMap?: Map<string, AssetType>
 ): AssetReportEntry[] {
   // Топ по spend
-  const filtered = filterByAngleAndType(report, angle, targetType);
+  const filtered = filterByAngleAndType(report, angle, targetType, assetTypeMap);
   filtered.sort((a, b) => (b.cost || 0) - (a.cost || 0));
   const topBySpend = filtered.slice(0, limit);
 
@@ -165,13 +182,19 @@ export function findTopComplementaryAssets(
 ): AssetReportEntry[] {
   const LIMIT = 10;
 
+  // Будуємо мапу id → type з API даних (authoritative джерело)
+  const assetTypeMap = new Map<string, AssetType>();
+  for (const a of allAssets) {
+    assetTypeMap.set(a.id, assetTypeFromApi(a));
+  }
+
   if (uploadedType === "image" || uploadedType === "html") {
     // Статика/HTML → 10 топ відео (добираємо найновішими якщо менше)
-    return topByspendOrRecent(report, allAssets, angle, "video", LIMIT);
+    return topByspendOrRecent(report, allAssets, angle, "video", LIMIT, assetTypeMap);
   } else {
     // Відео → 10 топ interactives (HTML) + 10 топ statics
-    const htmlAssets = topByspendOrRecent(report, allAssets, angle, "html", LIMIT);
-    const imageAssets = topByspendOrRecent(report, allAssets, angle, "image", LIMIT);
+    const htmlAssets = topByspendOrRecent(report, allAssets, angle, "html", LIMIT, assetTypeMap);
+    const imageAssets = topByspendOrRecent(report, allAssets, angle, "image", LIMIT, assetTypeMap);
     return [...htmlAssets, ...imageAssets];
   }
 }
