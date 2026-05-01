@@ -114,8 +114,10 @@ async function handleUpload(
       : undefined;
     const durationSec = durationMs ? Math.round(durationMs / 100) / 10 : undefined;
     const sizeMb = file.size ? Math.round(Number(file.size) / 1024 / 1024 * 10) / 10 : undefined;
-    const width = file.videoMediaMetadata?.width;
-    const height = file.videoMediaMetadata?.height;
+    // Розміри: відео → videoMediaMetadata, статика → imageMediaMetadata
+    const width = file.videoMediaMetadata?.width || file.imageMediaMetadata?.width;
+    const height = file.videoMediaMetadata?.height || file.imageMediaMetadata?.height;
+    const isVideo = file.mimeType?.startsWith("video/") || /\.(mp4|mov)$/i.test(file.name);
     send("search_drive", "done", {
       fileName: file.name,
       fileId: file.id,
@@ -124,12 +126,12 @@ async function handleUpload(
       ...(width && height && { resolution: `${width}x${height}` }),
     });
 
-    // AppLovin ліміти для відео — фейлим раніше з ясною помилкою
+    // AppLovin ліміти — фейлим раніше з ясною помилкою
     const MAX_VIDEO_SEC = 60;
     const MIN_PIXELS_SHORT_SIDE = 720;
     const MAX_PIXELS = 4096;
 
-    if (durationSec !== undefined && durationSec > MAX_VIDEO_SEC) {
+    if (isVideo && durationSec !== undefined && durationSec > MAX_VIDEO_SEC) {
       logError = `Відео задовге: ${durationSec}с (максимум ${MAX_VIDEO_SEC}с для AppLovin)`;
       send("search_drive", "error", { message: logError });
       return null;
@@ -171,7 +173,12 @@ async function handleUpload(
       // Step 4: Upload to AppLovin
       send("upload", "progress");
       const uploadResult = await uploadAsset(buffer, file.name, mimeType);
-      send("upload", "done", { status: "Очікування обробки...", uploadId: uploadResult.upload_id });
+      send("upload", "done", {
+        status: "Очікування обробки...",
+        uploadId: uploadResult.upload_id,
+        // Якщо AppLovin повертає помилку в успішній відповіді (rare) — буде видно
+        uploadResponse: uploadResult,
+      });
 
       // Швидка спроба знайти assetId — щоб не з'їсти Vercel-бюджет 60с.
       // Якщо не знайдено — Phase 2 (handleCreate) дочекається його через свій findAssetByName.
