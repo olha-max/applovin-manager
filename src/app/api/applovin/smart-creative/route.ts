@@ -18,6 +18,7 @@ import {
   detectAssetType,
   findTopComplementaryAssets,
 } from "@/lib/applovin-reporting";
+import { resizeStaticToAppLovinSpec } from "@/lib/image-resize";
 
 export const maxDuration = 60;
 
@@ -170,9 +171,35 @@ async function handleUpload(
       logAssetType = assetType;
       send("download", "done", { size: buffer.byteLength, assetType, mimeType });
 
+      // Resize статики до 1080x1920 (або 1920x1080 для ландшафту), якщо вона
+      // ще не такого розміру. AppLovin вимагає саме ці dimensions для статики.
+      let uploadBuffer: ArrayBuffer = buffer;
+      if (assetType === "image") {
+        try {
+          const resizeResult = await resizeStaticToAppLovinSpec(buffer);
+          uploadBuffer = resizeResult.buffer;
+          if (resizeResult.resized) {
+            send("download", "done", {
+              size: uploadBuffer.byteLength,
+              assetType,
+              mimeType,
+              resized: `${resizeResult.fromWidth}x${resizeResult.fromHeight} → ${resizeResult.toWidth}x${resizeResult.toHeight}`,
+            });
+          }
+        } catch (e) {
+          // Resize впав — заливаємо оригінал, AppLovin сам скаже якщо не пройде
+          send("download", "done", {
+            size: buffer.byteLength,
+            assetType,
+            mimeType,
+            resizeError: e instanceof Error ? e.message : "resize failed",
+          });
+        }
+      }
+
       // Step 4: Upload to AppLovin
       send("upload", "progress");
-      const uploadResult = await uploadAsset(buffer, file.name, mimeType);
+      const uploadResult = await uploadAsset(uploadBuffer, file.name, mimeType);
       send("upload", "done", {
         status: "Очікування обробки...",
         uploadId: uploadResult.upload_id,
