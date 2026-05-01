@@ -69,16 +69,17 @@ export interface AppLovinAssetLite {
   upload_time?: string;
 }
 
-// Тип ассета з AppLovin API. resource_type — канонічне поле API
-// зі значеннями "video"/"image"/"html" (image=static, html=interstitial).
-// Фолбек на здогадку по назві лише якщо resource_type не заповнений.
+// Тип ассета з AppLovin: resource_type (канонічне поле API) + конвенція назви.
+// У AppLovin назвах інтерів завжди є "html" — це використовуємо як підтвердження
+// або фолбек коли resource_type порожній.
 function assetTypeFromApi(asset: AppLovinAssetLite): AssetType | null {
   const rt = (asset.resource_type || "").toString().toLowerCase().trim();
+  const nameLower = (asset.name || "").toLowerCase();
+  const nameHasHtml = nameLower.includes("html");
+
   if (rt === "video") return "video";
+  if (rt === "html" || nameHasHtml) return "html";
   if (rt === "image") return "image";
-  if (rt === "html") return "html";
-  // resource_type порожній — нема надійного способу розрізнити static від interstitial
-  // (обидва часто мають "_static_" в назві). Не включаємо такі ассети взагалі.
   return null;
 }
 
