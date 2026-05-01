@@ -129,6 +129,10 @@ export default function CreativesPage() {
   const [phase, setPhase] = useState<"idle" | "uploading" | "uploaded" | "creating">("idle");
   const [showForm, setShowForm] = useState(false);
 
+  // Short video warnings (< 20s)
+  const [shortVideos, setShortVideos] = useState<{ name: string; fileName: string; durationSec: number }[] | null>(null);
+  const [pendingJobs, setPendingJobs] = useState<{ name: string; driveFolderUrl: string }[] | null>(null);
+
   // Logs
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
@@ -428,6 +432,27 @@ export default function CreativesPage() {
   }
 
   // ========== Batch Handler ==========
+  async function runUploadPhase(parsed: { name: string; driveFolderUrl: string }[]) {
+    const initialJobs: CreativeJob[] = parsed.map((p) => ({
+      ...p,
+      status: "pending",
+      pipeline: [],
+    }));
+    setJobs(initialJobs);
+
+    // Phase 1: Upload all (з паузою між job щоб не дросселити Google Drive API)
+    setPhase("uploading");
+    for (let i = 0; i < parsed.length; i++) {
+      // Пауза 5с між job для уникнення Google Drive rate limit
+      if (i > 0) await new Promise((r) => setTimeout(r, 5000));
+      await uploadJob(parsed[i], i);
+    }
+
+    // Phase 1 завершена — Phase 2 запускається кнопкою
+    setPhase("uploaded");
+    setRunning(false);
+  }
+
   async function handleBulkCreate(e: React.FormEvent) {
     e.preventDefault();
     const parsed = parseInput(bulkInput);
@@ -439,25 +464,57 @@ export default function CreativesPage() {
     setError("");
     setRunning(true);
 
-    const initialJobs: CreativeJob[] = parsed.map((p) => ({
-      ...p,
-      status: "pending",
-      pipeline: [],
-    }));
-    setJobs(initialJobs);
+    // Preflight: перевіряємо тривалість відео паралельно
+    const SHORT_VIDEO_THRESHOLD_SEC = 20;
+    const preflightResults = await Promise.all(
+      parsed.map(async (job) => {
+        try {
+          const res = await fetch("/api/applovin/smart-creative", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...job, mode: "preflight" }),
+          });
+          if (!res.ok) return null;
+          return (await res.json()) as {
+            found: boolean;
+            fileName?: string;
+            isVideo?: boolean;
+            durationSec?: number;
+          };
+        } catch {
+          return null;
+        }
+      })
+    );
 
-    // Phase 1: Upload all (з паузою між job щоб не дросселити Google Drive API)
-    setPhase("uploading");
-    const uploadResults: Array<{ assetId: string; assetType: string; fileName: string } | null> = [];
-    for (let i = 0; i < parsed.length; i++) {
-      // Пауза 5с між job для уникнення Google Drive rate limit
-      if (i > 0) await new Promise((r) => setTimeout(r, 5000));
-      const result = await uploadJob(parsed[i], i);
-      uploadResults.push(result);
+    const shorties = preflightResults
+      .map((r, i) =>
+        r?.found && r.isVideo && r.durationSec !== undefined && r.durationSec < SHORT_VIDEO_THRESHOLD_SEC
+          ? { name: parsed[i].name, fileName: r.fileName || parsed[i].name, durationSec: r.durationSec }
+          : null
+      )
+      .filter((x): x is { name: string; fileName: string; durationSec: number } => x !== null);
+
+    if (shorties.length > 0) {
+      // Чекаємо рішення користувача — модалка викличе continueUploadPhase / cancel
+      setShortVideos(shorties);
+      setPendingJobs(parsed);
+      return;
     }
 
-    // Phase 1 завершена — Phase 2 запускається кнопкою
-    setPhase("uploaded");
+    await runUploadPhase(parsed);
+  }
+
+  function acceptShortVideos() {
+    const jobs = pendingJobs;
+    setShortVideos(null);
+    setPendingJobs(null);
+    if (jobs) runUploadPhase(jobs);
+  }
+
+  function cancelShortVideos() {
+    setShortVideos(null);
+    setPendingJobs(null);
     setRunning(false);
   }
 
@@ -668,6 +725,41 @@ export default function CreativesPage() {
 
   return (
     <div>
+      {shortVideos && shortVideos.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="max-w-lg w-full rounded-xl border border-yellow-500/30 bg-slate-900 p-6 shadow-xl">
+            <h2 className="text-lg font-semibold text-yellow-300">
+              Короткі відео ({shortVideos.length})
+            </h2>
+            <p className="mt-2 text-sm text-slate-300">
+              Ці відео коротші за 20 секунд. Загрузити їх у AppLovin?
+            </p>
+            <ul className="mt-3 max-h-60 overflow-y-auto space-y-1 rounded-lg border border-slate-700 bg-slate-950/50 p-3 text-xs">
+              {shortVideos.map((v) => (
+                <li key={v.name} className="flex items-center justify-between gap-3 text-slate-300">
+                  <span className="truncate">{v.fileName}</span>
+                  <span className="font-mono text-yellow-300 shrink-0">{v.durationSec}с</span>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                onClick={cancelShortVideos}
+                className="rounded-lg bg-slate-700 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-600"
+              >
+                Скасувати
+              </button>
+              <button
+                onClick={acceptShortVideos}
+                className="rounded-lg bg-yellow-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-yellow-700"
+              >
+                Accept
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-white">Креативи</h1>
         <div className="flex gap-2">

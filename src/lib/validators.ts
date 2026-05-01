@@ -42,7 +42,7 @@ export const smartCreativeSchema = z.object({
       (url) => /drive\.google\.com\/drive\/(u\/\d+\/)?folders\//.test(url),
       "Посилання має бути на папку Google Drive"
     ),
-  mode: z.enum(["upload", "create"]).optional(),
+  mode: z.enum(["upload", "create", "preflight"]).optional(),
   // Для mode="create" — передаються з фази upload
   assetId: z.string().optional(),
   assetType: z.string().optional(),

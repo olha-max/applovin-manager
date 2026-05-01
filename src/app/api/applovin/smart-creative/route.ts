@@ -508,6 +508,35 @@ export async function POST(req: NextRequest) {
 
   const { name, driveFolderUrl, mode, assetId, assetType, fileName } = parsed.data;
 
+  // Preflight: лише шукає файл в Drive і повертає метадані (без upload)
+  if (mode === "preflight") {
+    try {
+      const folderId = parseDriveFolderUrl(driveFolderUrl);
+      const file = await findFileRecursive(folderId, name);
+      if (!file) {
+        return Response.json({ found: false }, { status: 200 });
+      }
+      const isVideo = file.mimeType?.startsWith("video/") || /\.(mp4|mov)$/i.test(file.name);
+      const durationMs = file.videoMediaMetadata?.durationMillis
+        ? Number(file.videoMediaMetadata.durationMillis)
+        : undefined;
+      const durationSec = durationMs ? Math.round(durationMs / 100) / 10 : undefined;
+      const sizeMb = file.size ? Math.round(Number(file.size) / 1024 / 1024 * 10) / 10 : undefined;
+      return Response.json({
+        found: true,
+        fileName: file.name,
+        isVideo,
+        durationSec,
+        sizeMb,
+        width: file.videoMediaMetadata?.width,
+        height: file.videoMediaMetadata?.height,
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Помилка preflight";
+      return Response.json({ found: false, error: msg }, { status: 200 });
+    }
+  }
+
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
