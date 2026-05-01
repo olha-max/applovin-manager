@@ -1,11 +1,5 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Включаємо ffmpeg бінарник у serverless function bundle для smart-creative
-  experimental: {
-    outputFileTracingIncludes: {
-      "/api/applovin/smart-creative": ["./node_modules/ffmpeg-static/**/*"],
-    },
-  },
   async headers() {
     return [
       {
