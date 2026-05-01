@@ -350,7 +350,7 @@ async function handleCreate(
 
     // Step: Create creative sets
     send("create_sets", "progress");
-    const results: Array<{ campaignId: string; result: unknown }> = [];
+    const results: Array<{ campaignId: string; result: unknown; attachedCount?: number; expectedCount?: number }> = [];
     const creativeSetName = fileName.trim().replace(/\.[^.]+$/, "");
 
     // Всі топ ассети йдуть в creative set разом з uploaded ассетом
@@ -395,7 +395,22 @@ async function handleCreate(
             name: creativeSetName,
             assets,
           });
-          results.push({ campaignId, result });
+          // Перевірка чи всі ассети реально додались — AppLovin може мовчки ігнорувати
+          // (наприклад якщо формат payload неправильний для додаткових ассетів)
+          const r = result as { assets?: unknown[]; creatives?: unknown[]; creative_ids?: unknown[] };
+          const arr = r.assets ?? r.creatives ?? r.creative_ids;
+          const attachedCount = Array.isArray(arr) ? arr.length : undefined;
+          const expectedCount = assets.length;
+          if (attachedCount !== undefined && attachedCount < expectedCount) {
+            send("create_sets", "progress", {
+              warning: `Очікувалось ${expectedCount} ассетів у сеті, AppLovin прикріпив ${attachedCount}`,
+              campaignId,
+              expectedCount,
+              attachedCount,
+              responseShape: Object.keys(result as object),
+            });
+          }
+          results.push({ campaignId, result, attachedCount, expectedCount });
           break;
         } catch (e) {
           const msg = e instanceof Error ? e.message : "Помилка створення";
