@@ -19,6 +19,7 @@ import {
   findTopComplementaryAssets,
 } from "@/lib/applovin-reporting";
 import { resizeStaticToAppLovinSpec } from "@/lib/image-resize";
+import { trimVideoToMaxDuration } from "@/lib/video-trim";
 
 export const maxDuration = 60;
 
@@ -132,11 +133,7 @@ async function handleUpload(
     const MIN_PIXELS_SHORT_SIDE = 720;
     const MAX_PIXELS = 4096;
 
-    if (isVideo && durationSec !== undefined && durationSec > MAX_VIDEO_SEC) {
-      logError = `Відео задовге: ${durationSec}с (максимум ${MAX_VIDEO_SEC}с для AppLovin)`;
-      send("search_drive", "error", { message: logError });
-      return null;
-    }
+    // Відео > 60с автоматично тримимо в кроці download — не блокуємо тут
     if (width && height) {
       const shortSide = Math.min(width, height);
       const longSide = Math.max(width, height);
@@ -194,6 +191,25 @@ async function handleUpload(
             mimeType,
             resizeError: e instanceof Error ? e.message : "resize failed",
           });
+        }
+      }
+
+      // Trim відео до 59с якщо довше — AppLovin відхиляє все що >60с
+      if (assetType === "video" && durationSec !== undefined && durationSec > MAX_VIDEO_SEC) {
+        try {
+          const trimResult = await trimVideoToMaxDuration(buffer, durationSec, MAX_VIDEO_SEC - 1);
+          uploadBuffer = trimResult.buffer;
+          send("download", "done", {
+            size: uploadBuffer.byteLength,
+            assetType,
+            mimeType,
+            trimmed: `${trimResult.fromDurationSec}с → ${trimResult.toDurationSec}с`,
+          });
+        } catch (e) {
+          // Trim впав — фейлимо явно, бо AppLovin все одно не прийме
+          logError = `Не вдалось обрізати відео (${durationSec}с): ${e instanceof Error ? e.message : "trim failed"}`;
+          send("download", "error", { message: logError });
+          return null;
         }
       }
 
