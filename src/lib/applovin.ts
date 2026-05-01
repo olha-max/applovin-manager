@@ -128,15 +128,15 @@ export interface AppLovinAsset {
   [key: string]: unknown;
 }
 
-export async function listAssets(resourceType?: "video" | "image" | "html"): Promise<AppLovinAsset[]> {
+export async function listAssets(): Promise<AppLovinAsset[]> {
   const allAssets: AppLovinAsset[] = [];
+  const MAX_PAGES = 50; // 50 × 100 = 5000 ассетів (раніше 20 × 100 = 2000)
 
-  for (let page = 1; page <= 20; page++) {
+  for (let page = 1; page <= MAX_PAGES; page++) {
     const url = new URL("asset/list", BASE_URL);
     url.searchParams.set("account_id", ACCOUNT_ID);
     url.searchParams.set("page", String(page));
     url.searchParams.set("size", "100");
-    if (resourceType) url.searchParams.set("resource_type", resourceType);
 
     const res = await fetch(url.toString(), {
       headers: { Authorization: getApiKey() },
@@ -145,7 +145,9 @@ export async function listAssets(resourceType?: "video" | "image" | "html"): Pro
 
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`Asset list error (${res.status}): ${text}`);
+      const headerError = res.headers.get("x-al-error-message") || "";
+      const errorMsg = text || headerError || `HTTP ${res.status}`;
+      throw new Error(`Asset list error (${res.status}): ${errorMsg}`);
     }
 
     const assets: AppLovinAsset[] = await res.json();

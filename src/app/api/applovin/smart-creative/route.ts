@@ -277,13 +277,10 @@ async function handleCreate(
     // Step: Get report + complementary assets
     send("report", "progress");
     const report = await getCachedReport();
-    // Тягнемо ассети окремо по resource_type — у кожного типу свій ліміт пагінації
-    // (інакше пагінація спільного списку могла б відрізати старіші типи)
+    const allAssetsList = await listAssets();
+    const topAssets = findTopComplementaryAssets(report, angle, assetType, allAssetsList);
     const neededTypes: Array<"video" | "image" | "html"> =
       assetType === "video" ? ["html", "image"] : ["video"];
-    const assetLists = await Promise.all(neededTypes.map((t) => listAssets(t)));
-    const allAssetsList = assetLists.flat();
-    const topAssets = findTopComplementaryAssets(report, angle, assetType, allAssetsList);
     if (topAssets.length === 0) {
       logError = `Не знайдено комплементарних ассетів з кутом _${angle}_`;
       send("report", "error", { message: logError });
@@ -300,7 +297,7 @@ async function handleCreate(
     send("report", "done", {
       topAssetsCount: topAssets.length,
       countByType,
-      poolSizes: Object.fromEntries(neededTypes.map((t, i) => [t, assetLists[i].length])),
+      poolSize: allAssetsList.length,
       topAssets: topAssets.map((a) => ({
         name: a.asset_name,
         id: a.asset_id,
