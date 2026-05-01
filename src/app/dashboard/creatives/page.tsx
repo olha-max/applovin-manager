@@ -556,7 +556,10 @@ export default function CreativesPage() {
       if (step.data.assetStatus) assetStatus = String(step.data.assetStatus);
     }
 
-    if (!assetId) return null;
+    // assetId не критичний — Phase 2 знайде ассет по fileName.
+    // Але якщо немає ні assetId ні fileName — нема з чим працювати.
+    const resolvedFileName = fileName || job.name;
+    if (!assetId && !resolvedFileName) return null;
 
     // Нормалізуємо assetType
     const normalized = assetType.toLowerCase();
@@ -564,7 +567,7 @@ export default function CreativesPage() {
       : normalized.includes("html") || normalized.includes("hosted") ? "html"
       : "image";
 
-    return { assetId, assetType: resolvedType, fileName: fileName || job.name, assetStatus };
+    return { assetId, assetType: resolvedType, fileName: resolvedFileName, assetStatus };
   }
 
   async function startPhase2() {
@@ -578,7 +581,7 @@ export default function CreativesPage() {
       const job = jobs[i];
       if (job.status === "error") continue;
       const uploadData = extractUploadData(job);
-      if (uploadData) {
+      if (uploadData?.assetId) {
         assetIdsToCheck.push(uploadData.assetId);
         jobIdToAssetId.set(i, uploadData.assetId);
       }

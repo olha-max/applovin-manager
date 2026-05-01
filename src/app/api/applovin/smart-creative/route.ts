@@ -173,9 +173,16 @@ async function handleUpload(
       const uploadResult = await uploadAsset(buffer, file.name, mimeType);
       send("upload", "done", { status: "Очікування обробки...", uploadId: uploadResult.upload_id });
 
-      // Шукаємо реальний asset id
-      uploadedAsset = await findAssetByName(file.name);
-      send("upload", "done", { assetId: uploadedAsset.id, assetType: uploadedAsset.asset_type, assetStatus: uploadedAsset.status });
+      // Швидка спроба знайти assetId — щоб не з'їсти Vercel-бюджет 60с.
+      // Якщо не знайдено — Phase 2 (handleCreate) дочекається його через свій findAssetByName.
+      try {
+        const found = await findAssetByName(file.name, 3, 2000);
+        uploadedAsset = found;
+        send("upload", "done", { assetId: found.id, assetType: found.asset_type, assetStatus: found.status });
+      } catch {
+        uploadedAsset = { id: "", asset_type: assetType, status: "PROCESSING", resource_type: assetType, name: file.name };
+        send("upload", "done", { uploadId: uploadResult.upload_id, status: "AppLovin ще обробляє — assetId забере Phase 2" });
+      }
     } else {
       const at = uploadedAsset.asset_type?.toString().toLowerCase() || "";
       if (at.includes("vid")) assetType = "video";
@@ -572,19 +579,27 @@ export async function POST(req: NextRequest) {
       };
 
       if (mode === "create") {
-        // Phase 2: Create creative sets only
-        if (!assetId || !assetType || !fileName) {
-          send("error", "error", { message: "assetId, assetType та fileName обов'язкові для mode=create" });
+        // Phase 2: Create creative sets only — fileName обов'язковий, assetId опціональний
+        // (Phase 1 могла не встигнути знайти assetId через Vercel timeout, тут досить чекатимемо)
+        if (!fileName) {
+          send("error", "error", { message: "fileName обов'язковий для mode=create" });
           controller.close();
           return;
         }
-        // Нормалізуємо assetType (AppLovin може повертати "VIDEO"/"IMAGE" замість "video"/"image")
-        const normalizedType = assetType.toLowerCase();
-        const resolvedType: import("@/lib/applovin-reporting").AssetType =
-          normalizedType.includes("vid") ? "video" :
-          normalizedType.includes("html") || normalizedType.includes("hosted") ? "html" :
-          "image";
-        await handleCreate(send, name, driveFolderUrl, assetId, resolvedType, fileName, user.userId, getClientIp(req));
+        // Нормалізуємо assetType (AppLovin може повертати "VIDEO"/"IMAGE" замість "video"/"image").
+        // assetType може бути порожнім якщо Phase 1 не встигла — тоді розрахуємо з fileName/mimeType.
+        const normalizedType = (assetType || "").toLowerCase();
+        let resolvedType: import("@/lib/applovin-reporting").AssetType;
+        if (normalizedType.includes("vid")) resolvedType = "video";
+        else if (normalizedType.includes("html") || normalizedType.includes("hosted")) resolvedType = "html";
+        else if (normalizedType.includes("image")) resolvedType = "image";
+        else {
+          // Фолбек по назві файлу
+          if (/\.(mp4|mov)$/i.test(fileName)) resolvedType = "video";
+          else if (/\.html?$/i.test(fileName) || fileName.toLowerCase().includes("html")) resolvedType = "html";
+          else resolvedType = "image";
+        }
+        await handleCreate(send, name, driveFolderUrl, assetId || "", resolvedType, fileName, user.userId, getClientIp(req));
       } else {
         // Phase 1 (default): Upload only
         await handleUpload(send, name, driveFolderUrl, user.userId);
