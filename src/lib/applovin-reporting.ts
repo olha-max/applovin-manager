@@ -110,14 +110,14 @@ function assetToReportEntry(asset: AppLovinAssetLite): AssetReportEntry {
   };
 }
 
-// Тип ассета з AppLovin API (authoritative) з фолбеком на здогадку по назві
+// Тип ассета з AppLovin API. resource_type — канонічне поле API
+// зі значеннями "video"/"image"/"html" (image=static, html=interstitial).
+// Фолбек на здогадку по назві лише якщо resource_type не заповнений.
 function assetTypeFromApi(asset: AppLovinAssetLite): AssetType {
-  const at = (asset.asset_type || "").toString().toLowerCase();
-  const rt = (asset.resource_type || "").toString().toLowerCase();
-  const combined = `${at} ${rt}`;
-  if (combined.includes("vid")) return "video";
-  if (combined.includes("html") || combined.includes("hosted") || combined.includes("playable") || combined.includes("interactive")) return "html";
-  if (combined.includes("image") || combined.includes("static") || combined.includes("img")) return "image";
+  const rt = (asset.resource_type || "").toString().toLowerCase().trim();
+  if (rt === "video") return "video";
+  if (rt === "image") return "image";
+  if (rt === "html") return "html";
   return guessAssetType(asset.name || "");
 }
 

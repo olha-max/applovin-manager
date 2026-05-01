@@ -427,12 +427,18 @@ async function handleCreate(
       skippedCount,
     };
 
+    // Перший унікальний текст помилки від AppLovin — щоб не копати в details
+    const firstApiError = results
+      .map((r) => (r.result as { error?: string }).error)
+      .find((e): e is string => typeof e === "string" && e.length > 0);
+
     if (skippedCount > 0 && skippedCount === results.length) {
       logError = `Всі ${skippedCount} креативних сетів вже існують (дублікати)`;
     } else if (failedCount > 0) {
-      logError = failedCount === results.length
+      const baseMsg = failedCount === results.length
         ? `Всі ${failedCount} креативних сетів не вдалось створити`
         : `${failedCount} з ${results.length} креативних сетів не вдалось створити`;
+      logError = firstApiError ? `${baseMsg}. AppLovin: ${firstApiError}` : baseMsg;
     }
 
     const hasErrors = failedCount > 0 || (skippedCount > 0 && logCreatedCount === 0);
