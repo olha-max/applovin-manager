@@ -210,6 +210,13 @@ async function handleCreate(
     try {
       // Шукаємо asset з ACTIVE статусом (з ретраями для очікування апруву)
       approvedAsset = await findAssetByName(fileName, 10, 5000);
+      // Якщо REJECTED — пропускаємо повністю, не створюємо креативні сети
+      if (approvedAsset.status?.toUpperCase() === "REJECTED") {
+        logError = "Asset відхилено AppLovin (REJECTED), пропускаємо створення сетів";
+        send("approval_check", "error", { message: logError, assetStatus: approvedAsset.status });
+        return;
+      }
+
       if (approvedAsset.status !== "ACTIVE") {
         send("approval_check", "done", { status: approvedAsset.status, warning: "Asset ще не ACTIVE, але спробуємо створити" });
       } else {

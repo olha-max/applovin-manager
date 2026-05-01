@@ -500,6 +500,42 @@ export default function CreativesPage() {
     setRunning(true);
     setPhase("creating");
 
+    // Спочатку — свіжа перевірка статусів всіх ассетів
+    const assetIdsToCheck: string[] = [];
+    const jobIdToAssetId = new Map<number, string>();
+    for (let i = 0; i < jobs.length; i++) {
+      const job = jobs[i];
+      if (job.status === "error") continue;
+      const uploadData = extractUploadData(job);
+      if (uploadData) {
+        assetIdsToCheck.push(uploadData.assetId);
+        jobIdToAssetId.set(i, uploadData.assetId);
+      }
+    }
+
+    let freshStatuses: Record<string, string> = {};
+    if (assetIdsToCheck.length > 0) {
+      try {
+        const res = await fetch(`/api/applovin/asset-status?ids=${assetIdsToCheck.join(",")}`);
+        if (res.ok) {
+          const data = await res.json() as { statuses: Record<string, string> };
+          freshStatuses = data.statuses;
+          // Оновити assetStatus в jobs
+          setJobs((prev) =>
+            prev.map((j, idx) => {
+              const aid = jobIdToAssetId.get(idx);
+              if (aid && freshStatuses[aid]) {
+                return { ...j, assetStatus: freshStatuses[aid] };
+              }
+              return j;
+            })
+          );
+        }
+      } catch {
+        // silent — продовжуємо з кешованими статусами
+      }
+    }
+
     for (let i = 0; i < jobs.length; i++) {
       const job = jobs[i];
       if (job.status === "error") continue;
@@ -514,11 +550,12 @@ export default function CreativesPage() {
         continue;
       }
 
-      // Пропустити REJECTED ассети
-      if (uploadData.assetStatus.toUpperCase() === "REJECTED") {
+      // Пропустити REJECTED ассети (використовуємо свіжий статус якщо є)
+      const currentStatus = (freshStatuses[uploadData.assetId] || uploadData.assetStatus || "").toUpperCase();
+      if (currentStatus === "REJECTED") {
         setJobs((prev) =>
           prev.map((j, idx) =>
-            idx === i ? { ...j, status: "error", error: `Asset rejected AppLovin (status: ${uploadData.assetStatus})` } : j
+            idx === i ? { ...j, status: "error", error: `Asset відхилено AppLovin (REJECTED) — пропущено` } : j
           )
         );
         continue;
