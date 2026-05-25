@@ -353,9 +353,11 @@ async function handleCreate(
 
     const campaignTypeMap = new Map<string, string>();
     const campaignNameMap = new Map<string, string>();
+    const campaignStatusMap = new Map<string, string>();
     for (const c of campaignsData) {
       campaignTypeMap.set(c.id, c.type as string || "APP");
       campaignNameMap.set(c.id, (c.name as string || "").toLowerCase());
+      campaignStatusMap.set(c.id, (c.status as string || "").toUpperCase());
     }
 
     // Маппінг angle → ключове слово в назві кампанії
@@ -364,6 +366,9 @@ async function handleCreate(
       au: "aura",
       ss: "soulmate",
       ch: "chats",
+      vbr: "vibrations",
+      bud: "buddism",
+      krm: "karma",
     };
 
     const allCreativeSets = await getCachedCreativeSets();
@@ -376,10 +381,12 @@ async function handleCreate(
       }
     }
 
-    // Фільтруємо: кампанія має мати angle в креативах + правильне ключове слово в назві
+    // Фільтруємо: кампанія LIVE + має angle в креативах + правильне ключове слово в назві
     const campaignKeyword = angleToCampaignKeyword[angle.toLowerCase()];
     const matchingCampaignIds = Array.from(campaignIdsWithAngle).filter((id) => {
       if (!campaignNameMap.has(id)) return false;
+      // Тільки LIVE кампанії — PAUSED/інші пропускаємо
+      if (campaignStatusMap.get(id) !== "LIVE") return false;
       // Якщо є маппінг для цього angle — перевіряємо назву кампанії
       if (campaignKeyword) {
         return campaignNameMap.get(id)!.includes(campaignKeyword);
@@ -389,7 +396,7 @@ async function handleCreate(
     });
 
     if (matchingCampaignIds.length === 0) {
-      const keywordHint = campaignKeyword ? ` (кампанія має містити "${campaignKeyword}")` : "";
+      const keywordHint = campaignKeyword ? ` (LIVE + назва містить "${campaignKeyword}")` : " (LIVE)";
       logError = `Не знайдено кампаній з кутом _${angle}_${keywordHint}`;
       send("find_campaigns", "error", { message: logError });
       return;
