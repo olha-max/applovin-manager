@@ -364,6 +364,7 @@ export default function CreativesPage() {
     );
 
     let lastError = "";
+    let receivedComplete = false;
 
     try {
       const res = await fetch("/api/applovin/smart-creative", {
@@ -408,7 +409,19 @@ export default function CreativesPage() {
             ? `${lastError}\n${event.data.errorDetail}`
             : String(event.data.errorDetail);
         }
+        if (
+          (event.step === "complete" || event.step === "error") &&
+          (event.status === "done" || event.status === "error")
+        ) {
+          receivedComplete = true;
+        }
       });
+
+      // Стрім міг бути обірваний Vercel-таймаутом (maxDuration=60) посеред роботи —
+      // тоді термінальна подія не приходить, і не можна вважати джоб успішним.
+      if (!receivedComplete && !lastError) {
+        lastError = "Обрив з'єднання до завершення (можливо, серверний таймаут)";
+      }
 
       setJobs((prev) =>
         prev.map((j, i) =>
@@ -417,6 +430,11 @@ export default function CreativesPage() {
                 ...j,
                 status: lastError ? "error" : "done",
                 error: lastError || undefined,
+                pipeline: lastError
+                  ? j.pipeline.map((s) =>
+                      s.status === "progress" ? { ...s, status: "error" } : s
+                    )
+                  : j.pipeline,
               }
             : j
         )
