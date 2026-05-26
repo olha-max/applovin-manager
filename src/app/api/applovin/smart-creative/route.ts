@@ -436,7 +436,7 @@ async function handleCreate(
         continue;
       }
 
-      if (ci > 0) await new Promise((r) => setTimeout(r, 2000));
+      if (ci > 0) await new Promise((r) => setTimeout(r, 500));
 
       let retries = 2;
       while (retries >= 0) {
